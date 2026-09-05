@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MIHOMO_HOME="${MIHOMO_HOME:-$HOME/mihomo}"
-CONFIG="${MIHOMO_CONFIG:-$MIHOMO_HOME/config.yaml}"
+MIHOMO_DIR=""
 API_BASE="${MIHOMO_API:-http://127.0.0.1:9090}"
 GROUP="${MIHOMO_GROUP:-MANUAL}"
 TEST_URL="${MIHOMO_TEST_URL:-https://www.gstatic.com/generate_204}"
@@ -11,11 +10,13 @@ TIMEOUT_MS="${MIHOMO_TEST_TIMEOUT:-5000}"
 usage() {
   cat <<'EOF'
 Usage:
-  test-nodes.sh
-  test-nodes.sh [--url URL] [--timeout MILLISECONDS] [--group GROUP]
+  test-nodes.sh MIHOMO_DIR
+  test-nodes.sh MIHOMO_DIR [--url URL] [--timeout MILLISECONDS] [--group GROUP]
+
+Argument:
+  MIHOMO_DIR          Required Mihomo binary and data directory.
 
 Environment overrides:
-  MIHOMO_HOME
   MIHOMO_CONFIG
   MIHOMO_API
   MIHOMO_GROUP
@@ -23,9 +24,9 @@ Environment overrides:
   MIHOMO_TEST_TIMEOUT
 
 Examples:
-  ./test-nodes.sh
-  ./test-nodes.sh --timeout 8000
-  ./test-nodes.sh --url https://cp.cloudflare.com
+  ./test-nodes.sh ~/mihomo
+  ./test-nodes.sh ~/mihomo --timeout 8000
+  ./test-nodes.sh ~/mihomo --url https://cp.cloudflare.com
 EOF
 }
 
@@ -42,12 +43,25 @@ while (($#)); do
       GROUP="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
-    *)
-      echo "Unknown argument: $1" >&2
+    -*)
+      echo "Unknown option: $1" >&2
       usage >&2
       exit 2 ;;
+    *)
+      [[ -z "$MIHOMO_DIR" ]] || {
+        echo "The Mihomo directory was provided more than once." >&2
+        exit 2
+      }
+      MIHOMO_DIR="$1"; shift ;;
   esac
 done
+
+if [[ -z "$MIHOMO_DIR" ]]; then
+  echo "A Mihomo directory is required." >&2
+  usage >&2
+  exit 2
+fi
+CONFIG="${MIHOMO_CONFIG:-${MIHOMO_DIR%/}/config.yaml}"
 
 for command in curl jq python3; do
   command -v "$command" >/dev/null 2>&1 || {
@@ -91,7 +105,7 @@ AUTH_HEADER="Authorization: Bearer $SECRET"
 CURRENT="$(curl -fsS --connect-timeout 3 -H "$AUTH_HEADER" \
   "$API_BASE/proxies/$ENCODED_GROUP" | jq -r '.now // "unknown"')" || {
   echo "Cannot reach Mihomo API at $API_BASE." >&2
-  echo "Make sure Mihomo is running with: $MIHOMO_HOME/mihomo -d $MIHOMO_HOME" >&2
+  echo "Make sure Mihomo is running with: ${MIHOMO_DIR%/}/mihomo -d $MIHOMO_DIR" >&2
   exit 1
 }
 

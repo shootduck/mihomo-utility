@@ -1,31 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MIHOMO_HOME="${MIHOMO_HOME:-$HOME/mihomo}"
-CONFIG="${MIHOMO_CONFIG:-$MIHOMO_HOME/config.yaml}"
+MIHOMO_DIR=""
 API_BASE="${MIHOMO_API:-http://127.0.0.1:9090}"
 GROUP="${MIHOMO_GROUP:-MANUAL}"
 
 usage() {
   cat <<'EOF'
 Usage:
-  select-node.sh
-  select-node.sh "EXACT NODE NAME"
-  select-node.sh --list
-  select-node.sh --group GROUP ["EXACT NODE NAME"]
+  select-node.sh MIHOMO_DIR
+  select-node.sh MIHOMO_DIR "EXACT NODE NAME"
+  select-node.sh MIHOMO_DIR --list
+  select-node.sh MIHOMO_DIR --group GROUP ["EXACT NODE NAME"]
 
 With no node name, the script shows a numbered interactive menu.
 
+Arguments:
+  MIHOMO_DIR          Required Mihomo binary and data directory.
+  EXACT NODE NAME     Optional node to select without the interactive menu.
+
 Environment overrides:
-  MIHOMO_HOME
   MIHOMO_CONFIG
   MIHOMO_API
   MIHOMO_GROUP
 
 Examples:
-  ./select-node.sh
-  ./select-node.sh --list
-  ./select-node.sh "Japan 01"
+  ./select-node.sh ~/mihomo
+  ./select-node.sh ~/mihomo --list
+  ./select-node.sh ~/mihomo "Japan 01"
 EOF
 }
 
@@ -43,18 +45,40 @@ while (($#)); do
       usage; exit 0 ;;
     --)
       shift
-      NODE="${1:-}"
-      [[ $# -le 1 ]] || { echo "Too many arguments after --" >&2; exit 2; }
-      shift $# ;;
+      while (($#)); do
+        if [[ -z "$MIHOMO_DIR" ]]; then
+          MIHOMO_DIR="$1"
+        elif [[ -z "$NODE" ]]; then
+          NODE="$1"
+        else
+          echo "Too many positional arguments." >&2
+          exit 2
+        fi
+        shift
+      done ;;
     -*)
       echo "Unknown argument: $1" >&2
       usage >&2
       exit 2 ;;
     *)
-      [[ -z "$NODE" ]] || { echo "Provide the node name as one quoted argument." >&2; exit 2; }
-      NODE="$1"; shift ;;
+      if [[ -z "$MIHOMO_DIR" ]]; then
+        MIHOMO_DIR="$1"
+      elif [[ -z "$NODE" ]]; then
+        NODE="$1"
+      else
+        echo "Provide the Mihomo directory and node name as quoted arguments." >&2
+        exit 2
+      fi
+      shift ;;
   esac
 done
+
+if [[ -z "$MIHOMO_DIR" ]]; then
+  echo "A Mihomo directory is required." >&2
+  usage >&2
+  exit 2
+fi
+CONFIG="${MIHOMO_CONFIG:-${MIHOMO_DIR%/}/config.yaml}"
 
 for command in curl jq python3; do
   command -v "$command" >/dev/null 2>&1 || {
@@ -98,7 +122,7 @@ AUTH_HEADER="Authorization: Bearer $SECRET"
 GROUP_JSON="$(curl -fsS --connect-timeout 3 -H "$AUTH_HEADER" \
   "$API_BASE/proxies/$ENCODED_GROUP")" || {
   echo "Cannot reach Mihomo API at $API_BASE." >&2
-  echo "Make sure Mihomo is running with: $MIHOMO_HOME/mihomo -d $MIHOMO_HOME" >&2
+  echo "Make sure Mihomo is running with: ${MIHOMO_DIR%/}/mihomo -d $MIHOMO_DIR" >&2
   exit 1
 }
 
@@ -141,7 +165,7 @@ fi
 if ! jq -e --arg node "$NODE" '.all | index($node) != null' \
   <<<"$GROUP_JSON" >/dev/null; then
   echo "Node not found in group '$GROUP': $NODE" >&2
-  echo "Run '$0 --list' to see exact node names." >&2
+  echo "Run '$0 \"$MIHOMO_DIR\" --list' to see exact node names." >&2
   exit 1
 fi
 
